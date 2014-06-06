@@ -1,0 +1,105 @@
+# depslib dependency file v1.0
+1372298597 source:/mnt/hgfs/share/rpc_server/server.c
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<unistd.h>
+	<sys/types.h>
+	<sys/socket.h>
+	<netinet/in.h>
+	<arpa/inet.h>
+	<sys/time.h>
+	<errno.h>
+	"net_service.h"
+	"net_server.h"
+	"net_comm.h"
+	"cJSON.h"
+
+1372296649 /mnt/hgfs/share/rpc_server/src/net_scheduler.h
+
+1372296449 /mnt/hgfs/share/rpc_server/src/net_service.h
+	<stdlib.h>
+	"cJSON.h"
+	"rscf_list.h"
+
+1360385460 /mnt/hgfs/share/rpc_server/src/cJSON.h
+
+1372296684 /mnt/hgfs/share/rpc_server/src/rscf_list.h
+
+1371801989 /mnt/hgfs/share/rpc_server/src/net_comm.h
+	<stdlib.h>
+	"cJSON.h"
+
+1360385686 source:/mnt/hgfs/share/rpc_server/src/cJSON.c
+	<string.h>
+	<stdio.h>
+	<math.h>
+	<stdlib.h>
+	<float.h>
+	<limits.h>
+	<ctype.h>
+	"cJSON.h"
+
+1372298659 source:/mnt/hgfs/share/rpc_server/src/net_comm.c
+	"config.h"
+	"cJSON.h"
+
+1372304964 source:/mnt/hgfs/share/rpc_server/src/net_scheduler.c
+	"net_Scheduler.h"
+	"rscf_list.h"
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<unistd.h>
+	<sys/types.h>
+	<sys/socket.h>
+	<netinet/in.h>
+	<arpa/inet.h>
+	<sys/time.h>
+	<rtthread.h>
+	<lwip/sockets.h>
+
+1372298682 source:/mnt/hgfs/share/rpc_server/src/net_service.c
+	"config.h"
+	"rscf_list.h"
+	"net_service.h"
+
+1372298577 /mnt/hgfs/share/rpc_server/src/net_server.h
+	"net_scheduler.h"
+	"rscf_list.h"
+
+1372315128 source:/mnt/hgfs/share/rpc_server/src/net_server.c
+	"config.h"
+	"rscf_list.h"
+	"net_scheduler.h"
+	"net_session.h"
+	"net_server.h"
+
+1372299285 /mnt/hgfs/share/rpc_server/src/config.h
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<unistd.h>
+	<sys/types.h>
+	<sys/socket.h>
+	<netinet/in.h>
+	<arpa/inet.h>
+	<sys/time.h>
+	<stdio.h>
+	<stdlib.h>
+	<string.h>
+	<WinSock2.h>
+	<rtthread.h>
+	<lwip/sockets.h>
+
+1372296232 /mnt/hgfs/share/rpc_server/src/net_session.h
+
+1372304921 source:/mnt/hgfs/share/rpc_server/src/net_session.c
+	"config.h"
+	"rscf_list.h"
+	"net_session.h"
+	"net_scheduler.h"
+	"net_server.h"
+	"net_service.h"
+	"cJSON.h"
+

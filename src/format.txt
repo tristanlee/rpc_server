@@ -1,0 +1,17 @@
+
+{
+	"call": {
+		"function": "function_name",
+		"params": {
+			"param1": "value1",
+			"param2": "value2"
+		}
+	}
+}
+
+{
+	"ret": {
+		"code": -1 
+		"desc": "Invalid Call"
+	}
+}
