@@ -40,6 +40,8 @@ int test_function2(void *param)
 
     server_init();
     server_open(&server, 0);
+
+    printf("server start...\n");
     server_start(server);
 
     return 0;
