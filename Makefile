@@ -57,7 +57,7 @@ OBJECTS := $(addprefix $(STORE)/, $(notdir $(SOURCE:.c=.o)))
 #OBJECTS := $(foreach DIR,$(SRC_DIRS),$(wildcard $(DIR)/*.c))
 #OBJECTS := $(notdir $(SOURCE))
 # Same for the .d (dependancy) files.
-DFILES := $(addprefix $(STORE)/, $(notdir $(SOURCE:.c=.dd)))
+DFILES := $(addprefix $(STORE)/, $(notdir $(SOURCE:.c=.d)))
 
 # Specify phony rules. These are rules that are not real files.
 .PHONY: clean backup dirs
