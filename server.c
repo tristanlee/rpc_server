@@ -38,13 +38,24 @@ int test_function2(void *param)
     service_register("test1", &service_test1, NULL);
     service_register("test2", &service_test2, NULL);
 
-    server_init();
-    server_open(&server, 0);
+    ret = server_init();
+    if (ret < 0)
+    {
+        printf("server err...\n");
+        return ret;
+    }
+    ret = server_open(&server, 0);
+    if (ret < 0)
+    {
+        printf("server err...\n");
+        return ret;
+    }
 
     printf("server start...\n");
     server_start(server);
 
-    return 0;
+    server_close(&server);
+    return ret;
 }
 
 

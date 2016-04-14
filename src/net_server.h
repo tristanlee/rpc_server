@@ -22,6 +22,7 @@ ServerT* server_get(void);
 int server_init(void);
 int server_open(ServerT **pServer, unsigned short port);
 int server_start(ServerT *server);
+int server_close(ServerT **pServer);
 
 #ifdef __cplusplus
 }

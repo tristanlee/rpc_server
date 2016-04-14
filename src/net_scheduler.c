@@ -1,4 +1,4 @@
-#include "net_Scheduler.h"
+#include "net_scheduler.h"
 #include "net_list.h"
 
 #if defined(LINUX_ENV)
@@ -31,10 +31,11 @@ typedef struct _DelayTaskT
     void *clientData;
     SchedProcT cleanUp;
     unsigned int timeoutTick;
+    unsigned int msec;
+    unsigned int flag;
 
     // DelayTasks are linked together in a doubly-linked list:
     ListNodeT listEntry;
-    int token;
 } DelayTaskT;
 
 typedef struct _HandlerDescriptorT
@@ -70,16 +71,37 @@ typedef struct _SchedIpcDataT
     SchedProcT cleanUp;
 } SchedIpcDataT;
 
-#define SCHEDULER_TICK_MAX 0xffffffff // Maxium number of UINT32
-#define SCHEDULER_IPC_DATA_MAGIC_ID 0x01DADA10
+enum SchedIpcCmdE
+{
+    SCHED_CMD_DELAY,
+    SCHED_CMD_UNDELAY,
+    SCHED_CMD_HANDLE_READ,
+    SCHED_CMD_UNHANDLE_READ,
+};
 
-static int gTokenCounter = 0;
+typedef struct _SchedIpcMsgT
+{
+    unsigned int magicId;
+    enum SchedIpcCmdE type;
+    int ret; // useless for now
+    void *param0;
+    void *param1;
+    void *param2;
+    void *param3;
+    void *param4;
+    void *param5;
+    void *param6;
+} SchedIpcMsgT;
+
+
+#define SCHEDULER_TICK_MAX 0xffffffff // Maxium number of UINT32
+#define SCHEDULER_IPC_MSG_MAGIC_ID 0x01DADA10
 
 static unsigned int PlatformGetTick(void);
 static DelayTaskT* FindDelayTask(SchedulerT *scheduler, int token);
+static void AddDelayTask(SchedulerT *scheduler, DelayTaskT *task);
 static int HandleTimeout(SchedulerT *scheduler);
 static HandlerDescriptorT* LookupHandler(SchedulerT *scheduler, int sock);
-static DelayTaskT* FindDelayTask(SchedulerT *scheduler, int token);
 static int AddIpcHandler(SchedulerT *scheduler);
 static void IpcHandler(void *data);
 
@@ -170,7 +192,7 @@ int scheduler_close(SchedulerT **pScheduler)
     {
         task = list_entry(entry, DelayTaskT, listEntry);
         entry = entry->next;
-        scheduler_undelay_task(scheduler, task->token);
+        scheduler_undelay_task(scheduler, (int)task);
     }
 
     FREE(scheduler);
@@ -243,17 +265,19 @@ int scheduler_unhandle_read(SchedulerT *scheduler, int sock)
     }
 
     list_remove(&hd->listEntry);
-    if (hd->cleanUp != NULL)
-    {
-        hd->cleanUp(hd->clientData);
-    }
-    FREE(hd);
 
+    // remove from socket set
     FD_CLR(sock, &scheduler->readSet);
     if (sock+1 == scheduler->maxNumSocks)
     {
         scheduler->maxNumSocks--;
     }
+
+    if (hd->cleanUp != NULL)
+    {
+        hd->cleanUp(hd->clientData);
+    }
+    FREE(hd);
 
     return ERR_SCHEDULER_OK;
 
@@ -269,11 +293,9 @@ int scheduler_unhandle_read(SchedulerT *scheduler, int sock)
  * @param [in] cleanUp the Cleanup function for doing cleanup job
  * @return a unique token number identifying the delayed Task
  */
-int scheduler_delay_task(SchedulerT *scheduler, unsigned int msec, SchedProcT proc, void *clientData, SchedProcT cleanUp)
+int scheduler_delay_task(SchedulerT *scheduler, unsigned int msec, unsigned int flag, SchedProcT proc, void *clientData, SchedProcT cleanUp)
 {
-
-    DelayTaskT *curTask, *task;
-    ListNodeT *curEntry;
+    DelayTaskT *task;
 
     if (msec > SCHEDULER_TICK_MAX/2)
     {
@@ -286,31 +308,17 @@ int scheduler_delay_task(SchedulerT *scheduler, unsigned int msec, SchedProcT pr
     {
         return ERR_SCHEDULER_UNKNOWN;
     }
-    task->token = ++gTokenCounter;
+    
     task->proc = proc;
     task->clientData = clientData;
     task->cleanUp = cleanUp;
     task->timeoutTick = PlatformGetTick() + msec;
+    task->msec = msec;
+    task->flag = flag;
 
-    // Add "task" to the queue
-    curEntry = scheduler->delayQHead.next;
-    while (curEntry != &scheduler->delayQHead)
-    {
-        curTask = list_entry(curEntry, DelayTaskT, listEntry);
-        if (curTask->timeoutTick - task->timeoutTick < SCHEDULER_TICK_MAX/2)
-        {
-            list_insert_before(curEntry, &task->listEntry);
-            break;
-        }
-        curEntry = curEntry->next;
-    }
-    if (curEntry == &scheduler->delayQHead)
-    {
-        list_insert_before(curEntry, &task->listEntry);
-    }
-
-    return task->token;
-
+    // Add task to the queue
+    AddDelayTask(scheduler, task);
+    return (int)task;
 }
 
 /**
@@ -318,23 +326,33 @@ int scheduler_delay_task(SchedulerT *scheduler, unsigned int msec, SchedProcT pr
  *
  * @param [in] scheduler the scheduler get from scheduler_open()
  * @param [in] token the token number identifying the delayed Task
- * @return status code
+ * @return remain time
  */
 int scheduler_undelay_task(SchedulerT *scheduler, int token)
 {
-
     DelayTaskT *task;
+    unsigned int remainTick;
 
     task = FindDelayTask(scheduler, token);
     if (task != NULL)
     {
+        remainTick = PlatformGetTick();
+        if (remainTick >= task->timeoutTick)
+        {
+            remainTick = 0;
+        }
+        else
+        {
+            remainTick = task->timeoutTick - remainTick;
+        }
+        
         list_remove(&task->listEntry);
         if (task->cleanUp != NULL)
         {
             (*task->cleanUp)(task->clientData);
         }
         FREE(task);
-        return ERR_SCHEDULER_OK;
+        return (int)remainTick;
     }
 
     return ERR_SCHEDULER_TASK_NOT_FOUND;
@@ -350,10 +368,10 @@ int scheduler_undelay_task(SchedulerT *scheduler, int token)
  * @param [in] cleanUp the Cleanup function for doing cleanup job
  * @return status code
  */
-int scheduler_delay_task_remote(SchedulerT *scheduler, unsigned int msec, SchedProcT proc, void *clientData, SchedProcT cleanUp)
+int scheduler_delay_task_remote(SchedulerT *scheduler, unsigned int msec, unsigned int flag, SchedProcT proc, void *clientData, SchedProcT cleanUp)
 {
     int ret;
-    SchedIpcDataT rcData;
+    SchedIpcMsgT ipcMsg;
     int sock;
     struct sockaddr_in dest;
 
@@ -362,12 +380,14 @@ int scheduler_delay_task_remote(SchedulerT *scheduler, unsigned int msec, SchedP
         return ERR_SCHEDULER_UNKNOWN;
     }
 
-    rcData.magicId = SCHEDULER_IPC_DATA_MAGIC_ID;
-    rcData.scheduler = scheduler;
-    rcData.msec = msec;
-    rcData.task = proc;
-    rcData.clientData = clientData;
-    rcData.cleanUp = cleanUp;
+    ipcMsg.magicId = SCHEDULER_IPC_MSG_MAGIC_ID;
+    ipcMsg.type = SCHED_CMD_DELAY;
+    ipcMsg.param0 = (void*)scheduler;
+    ipcMsg.param1 = (void*)msec;
+    ipcMsg.param2 = (void*)flag;
+    ipcMsg.param3 = (void*)proc;
+    ipcMsg.param4 = (void*)clientData;
+    ipcMsg.param5 = (void*)cleanUp;
 
     sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
     if (sock < 0) return ERR_SCHEDULER_SOCKET;
@@ -377,7 +397,7 @@ int scheduler_delay_task_remote(SchedulerT *scheduler, unsigned int msec, SchedP
     dest.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     dest.sin_port = htons(scheduler->ipcPort);
 
-    ret = sendto(sock, &rcData, sizeof(rcData), 0, (struct  sockaddr  *)&dest, sizeof(dest));
+    ret = sendto(sock, &ipcMsg, sizeof(ipcMsg), 0, (struct  sockaddr  *)&dest, sizeof(dest));
     if (ret < 0)
     {
         SCHED_PRINTF("[Scheduler] scheduler_delay_task_remote()->sendto() failed! %d\n", ret);
@@ -548,7 +568,7 @@ static DelayTaskT* FindDelayTask(SchedulerT *scheduler, int token)
     while (entry != &scheduler->delayQHead)
     {
         task = list_entry(entry, DelayTaskT, listEntry);
-        if (task->token == token)
+        if ((int)task == token)
         {
             return task;
         }
@@ -556,7 +576,32 @@ static DelayTaskT* FindDelayTask(SchedulerT *scheduler, int token)
     }
 
     return NULL;
+}
 
+static void AddDelayTask(SchedulerT *scheduler, DelayTaskT *task)
+{
+    ListNodeT *entry;
+    DelayTaskT *curTask;
+    
+    // Add task to the Delay List
+    entry = scheduler->delayQHead.next;
+    while (entry != &scheduler->delayQHead)
+    {
+        curTask = list_entry(entry, DelayTaskT, listEntry);
+        if (curTask->timeoutTick - task->timeoutTick != 0 && \
+            curTask->timeoutTick - task->timeoutTick < SCHEDULER_TICK_MAX/2)
+        {
+            list_insert_before(entry, &task->listEntry);
+            break;
+        }
+        entry = entry->next;
+    }
+
+    // Insert into tail
+    if (entry == &scheduler->delayQHead)
+    {
+        list_insert_before(entry, &task->listEntry);
+    }
 }
 
 static int HandleTimeout(SchedulerT *scheduler)
@@ -580,10 +625,20 @@ static int HandleTimeout(SchedulerT *scheduler)
         if (currentTick - task->timeoutTick < SCHEDULER_TICK_MAX/2)
         {
             // This DelayTask is due to be handled:
-            list_remove(&task->listEntry); // do this first, in case handler accesses queue
-            if (task->proc) (*task->proc)(task->clientData);
-            if (task->cleanUp) (*task->cleanUp)(task->clientData);
-            FREE(task);
+            if (task->flag == DELAYTASK_FLAG_ONESHOT)
+            {
+                list_remove(&task->listEntry); // do this first, in case handler accesses queue
+                if (task->proc) (*task->proc)(task->clientData);
+                if (task->cleanUp) (*task->cleanUp)(task->clientData);
+                FREE(task);                
+            }
+            else
+            {
+                list_remove(&task->listEntry); // do this first, in case handler accesses queue
+                if (task->proc) (*task->proc)(task->clientData);
+                task->timeoutTick += task->msec;
+                AddDelayTask(scheduler, task);
+            }
         }
         else
         {
@@ -626,23 +681,62 @@ static void IpcHandler(void *data)
     struct sockaddr_in fromAddr;
     socklen_t fromAddrLen = sizeof(fromAddr);
     int sock = (int)data;
-    SchedIpcDataT rcData;
+    SchedIpcMsgT ipcMsg;
 
     if (sock < 0) return;
-    ret = recvfrom(sock, &rcData, sizeof(rcData), 0, (struct sockaddr *)&fromAddr, &fromAddrLen);
-    if (ret < 0 || ret != (int)sizeof(rcData))   // Error happened, just return
+    ret = recvfrom(sock, &ipcMsg, sizeof(ipcMsg), 0, (struct sockaddr *)&fromAddr, &fromAddrLen);
+    if (ret < 0 || ret != (int)sizeof(ipcMsg))   // Error happened, just return
     {
         SCHED_PRINTF("[Scheduler] IpcHandler()->recvfrom() %d!\n", ret);
         return;
     }
 
-    if (rcData.magicId != SCHEDULER_IPC_DATA_MAGIC_ID)   // Error data, just return
+    if (ipcMsg.magicId != SCHEDULER_IPC_MSG_MAGIC_ID)   // Error data, just return
     {
         SCHED_PRINTF("[Scheduler] IPC data error!\n");
         return;
     }
 
-    scheduler_delay_task(rcData.scheduler, rcData.msec, rcData.task, rcData.clientData, rcData.cleanUp);
+    switch (ipcMsg.type)
+    {
+        case SCHED_CMD_DELAY:
+        {
+            SchedulerT *scheduler = (SchedulerT *)ipcMsg.param0;
+            unsigned int msec = (unsigned int)ipcMsg.param1;
+            unsigned int flag = (unsigned int)ipcMsg.param2;
+            SchedProcT proc = (SchedProcT)ipcMsg.param3;
+            void *clientData = (void*)ipcMsg.param4;
+            SchedProcT cleanUp = (SchedProcT)ipcMsg.param5;
+            ipcMsg.ret = scheduler_delay_task(scheduler, msec, flag, proc, clientData, cleanUp);
+            break;
+        }
+        case SCHED_CMD_UNDELAY:
+        {
+            SchedulerT *scheduler = (SchedulerT *)ipcMsg.param0;
+            int token = (int)ipcMsg.param1;
+            ipcMsg.ret = scheduler_undelay_task(scheduler, token);
+            break;
+        }
+        case SCHED_CMD_HANDLE_READ:
+        {
+            SchedulerT *scheduler = (SchedulerT *)ipcMsg.param0;
+            int sock = (int)ipcMsg.param1;
+            SchedProcT handlerProc = (SchedProcT)ipcMsg.param2;
+            void *clientData = (void*)ipcMsg.param3;
+            SchedProcT cleanUp = (SchedProcT)ipcMsg.param4;
+            ipcMsg.ret = scheduler_handle_read(scheduler, sock, handlerProc, clientData, cleanUp);
+            break;
+        }
+        case SCHED_CMD_UNHANDLE_READ:
+        {
+            SchedulerT *scheduler = (SchedulerT *)ipcMsg.param0;
+            int sock = (int)ipcMsg.param1;
+            ipcMsg.ret = scheduler_unhandle_read(scheduler, sock);
+            break;
+        }
+        default:
+            break;
+    }
 
 }
 

@@ -24,7 +24,7 @@ int server_init(void)
 
 int server_open(ServerT **pServer, unsigned short port)
 {
-    int sock, ret;
+    int sock, ret=0;
     ServerT *server;
     struct sockaddr_in addr;
     SchedulerParamT param;
@@ -47,11 +47,19 @@ int server_open(ServerT **pServer, unsigned short port)
         return -1;
     }
 
+    // Reuse address
+    int enable=1;
+    ret = setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (char *)&enable, sizeof(enable));
+    if (ret < 0)
+    {
+        closesocket(sock);
+        return -1;
+    }
+    
     MEMSET(&addr, 0, sizeof(addr));
     addr.sin_family = AF_INET;
     addr.sin_port = htons(port);
     addr.sin_addr.s_addr = INADDR_ANY;
-
     ret = bind(sock, (struct sockaddr*)&addr, sizeof(addr));
     if (ret < 0)
     {
@@ -78,15 +86,26 @@ int server_open(ServerT **pServer, unsigned short port)
     scheduler_handle_read(server->scheduler, sock, (SchedProcT)server_connection_handler, server, NULL);
 
     *pServer = server;
-    return 0;
+    return ret;
 }
 
 int server_start(ServerT *server)
 {
     while (1)
     {
-        scheduler_single_step(server->scheduler, 200);
+        scheduler_single_step(server->scheduler, 1000);
     }
+
+    return 0;
+}
+
+int server_close(ServerT **pServer)
+{
+    ServerT *server = *pServer;
+    
+    scheduler_close(&server->scheduler);
+    FREE(server);
+    *pServer = NULL;
 
     return 0;
 }

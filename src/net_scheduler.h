@@ -6,6 +6,9 @@
 extern "C" {
 #endif
 
+#define DELAYTASK_FLAG_ONESHOT          0x01
+#define DELAYTASK_FLAG_PERIODIC         0x02
+
 typedef void (*SchedProcT)(void* clientData);
 
 typedef struct _SchedulerT SchedulerT;
@@ -21,9 +24,9 @@ int scheduler_close(SchedulerT **pScheduler);
 int scheduler_single_step(SchedulerT *scheduler, unsigned int defaultMsec);
 
 // Delay Task Interfaces:
-int scheduler_delay_task(SchedulerT *scheduler, unsigned int msec, SchedProcT proc, void *clientData, SchedProcT cleanUp);
+int scheduler_delay_task(SchedulerT *scheduler, unsigned int msec, unsigned int flag, SchedProcT proc, void *clientData, SchedProcT cleanUp);
 int scheduler_undelay_task(SchedulerT *scheduler, int token);
-int scheduler_delay_task_remote(SchedulerT *scheduler, unsigned int msec, SchedProcT proc, void *clientData, SchedProcT cleanUp);
+int scheduler_delay_task_remote(SchedulerT *scheduler, unsigned int msec, unsigned int flag, SchedProcT proc, void *clientData, SchedProcT cleanUp);
 
 // Socket Event Handler Interfaces:
 int scheduler_handle_read(SchedulerT *scheduler, int sock, \

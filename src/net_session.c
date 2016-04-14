@@ -10,6 +10,7 @@
 
 static int session_cur_id = 0;
 
+static void session_cleanup(SessionT *client);
 static int session_gen_id(void);
 static void session_request_handler(SessionT *client);
 static int session_send_response(SessionT *session, cJSON *res);
@@ -36,7 +37,7 @@ int session_open(SessionT **pClient, void *ourServer, int sock)
 
     list_insert_before(&server->clientList, &client->listEntry);
     server->clientNum++;
-    scheduler_handle_read(server->scheduler, sock, (SchedProcT)session_request_handler, client, NULL);
+    scheduler_handle_read(server->scheduler, sock, (SchedProcT)session_request_handler, client, (SchedProcT)session_cleanup);
 
     *pClient = client;
     return ERR_OK;
@@ -48,14 +49,21 @@ int session_close(SessionT **pClient)
     ServerT *server = (ServerT *)client->ourServer;
 
     scheduler_unhandle_read(server->scheduler, client->sock);
+    //session_cleanup(client);
+    
+    *pClient = NULL;
+    return ERR_OK;
+}
+
+static void session_cleanup(SessionT *client)
+{
+    ServerT *server = (ServerT *)client->ourServer;
+    
     list_remove(&client->listEntry);
     server->clientNum--;
     closesocket(client->sock);
     if (client->response) FREE(client->response);
     FREE(client);
-    *pClient = NULL;
-
-    return ERR_OK;
 }
 
 static int session_send_response(SessionT *session, cJSON *res)
@@ -63,10 +71,16 @@ static int session_send_response(SessionT *session, cJSON *res)
     ServerT *server;
     if (!session || !res) return ERR_UNKNOWN;
 
-    server = (ServerT *)session->ourServer;
     if (session->response) FREE(session->response);
     session->response = cJSON_Print(res);
-    return scheduler_delay_task_remote(server->scheduler, 0, (SchedProcT)session_send, session, NULL);
+#if 1
+    session_send(session);
+    return 0;
+#else
+    server = (ServerT *)session->ourServer;
+    return scheduler_delay_task_remote(server->scheduler, 0, DELAYTASK_FLAG_ONESHOT, \
+                                        (SchedProcT)session_send, session, NULL);
+#endif
 }
 
 static void session_send(SessionT *session)
